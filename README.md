@@ -33,6 +33,14 @@ Each rule is one of:
 - `-O <pattern>`: only output stdout lines matching `pattern`
 - `-E <pattern>`: only output stderr lines matching `pattern`
 - `-A <pattern>`: only output stdout or stderr lines matching `pattern`
+- `-c <file>`: load all rules from a file
+
+Rule file format: one rule per line, like this:
+```tg
+-o Barring the foo.*
+-e ^WARNING(40|120|257)$
+-c all.tg
+```
 
 ## Builds
 

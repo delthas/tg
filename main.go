@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -14,7 +15,7 @@ func fatal(f string, args ...interface{}) {
 	a := make([]interface{}, len(args)+1)
 	a[0] = os.Args[0]
 	copy(a[1:], args)
-	_, _ = fmt.Fprintf(os.Stderr, "%s: "+f, a...)
+	_, _ = fmt.Fprintf(os.Stderr, "%s: "+f+"\n", a...)
 	os.Exit(1)
 }
 
@@ -88,6 +89,57 @@ func match(line string, stderr bool) bool {
 	return true
 }
 
+var loaded = make(map[string]struct{}, 4)
+
+func load(path string) {
+	if _, ok := loaded[path]; ok {
+		return
+	}
+	loaded[path] = struct{}{}
+	f, err := os.Open(path)
+	if err != nil {
+		fatal("config file %s could not be opened: %s", path, err.Error())
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		l := sc.Text()
+		if len(l) == 0 {
+			continue
+		}
+		if !strings.HasPrefix(l, "-") {
+			fatal("invalid line in config file %s: line doesnt start with `-`: %s", path, l)
+		}
+		i := strings.IndexRune(l, ' ')
+		if i == -1 {
+			fatal("invalid line in config file %s: line doesnt have pattern: %s", path, l)
+		}
+		key := l[1:i]
+		value := l[i+1:]
+		switch key {
+		case "o", "e", "a", "O", "E", "A":
+			r, err := regexp.Compile(value)
+			if err != nil {
+				fatal("invalid line in config file %s: pattern not recognized: %s: %s", path, err.Error(), value)
+			}
+			patterns[key] = append(patterns[key], r)
+		case "c":
+			if !filepath.IsAbs(value) {
+				p, err := filepath.Abs(path)
+				if err != nil {
+					fatal("could not get absolute path of file %s: %s", path, err.Error())
+				}
+				value = filepath.Join(filepath.Dir(p), value)
+			}
+			load(value)
+		case "-":
+			continue
+		default:
+			fatal("invalid line in config file %s: line has unknown rule type: %s", path, l)
+		}
+	}
+}
+
 func main() {
 	flagType := ""
 	command := -1
@@ -95,7 +147,7 @@ func main() {
 		if flagType == "" {
 			if strings.HasPrefix(v, "-") {
 				switch v[1:] {
-				case "o", "e", "a", "O", "E", "A":
+				case "o", "e", "a", "O", "E", "A", "c":
 					flagType = v[1:]
 				case "-":
 					command = i + 1
@@ -108,19 +160,23 @@ func main() {
 				break
 			}
 		} else {
-			r, err := regexp.Compile(v)
-			if err != nil {
-				fatal("pattern not recognized: %s: %s", err.Error(), v)
+			if flagType == "c" {
+				load(v)
+			} else {
+				r, err := regexp.Compile(v)
+				if err != nil {
+					fatal("pattern not recognized: %s: %s", err.Error(), v)
+				}
+				patterns[flagType] = append(patterns[flagType], r)
 			}
-			patterns[flagType] = append(patterns[flagType], r)
 			flagType = ""
 		}
 	}
 	command++ // for loop started at index 1
 	if flagType != "" {
-		fatal("not enough arguments, pattern for -%s was not specified", flagType)
+		fatal("not enough arguments, value for -%s was not specified", flagType)
 	}
-	if command == -1 || command >= len(os.Args) {
+	if command == 0 || command >= len(os.Args) {
 		fatal("not enough arguments, a command must be specified")
 	}
 	cmd := exec.Command(os.Args[command], os.Args[command+1:]...)
