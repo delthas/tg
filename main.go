@@ -138,6 +138,9 @@ func load(path string) {
 			fatal("invalid line in config file %s: line has unknown rule type: %s", path, l)
 		}
 	}
+	if err := sc.Err(); err != nil {
+		fatal("failed reading config file %s: %s", path, err.Error())
+	}
 }
 
 func main() {
@@ -219,12 +222,19 @@ func main() {
 				_, _ = fmt.Fprint(os.Stdout, line)
 			}
 		}
+		if err := sc.Err(); err != nil {
+			if stderr {
+				fatal("failed reading from stderr: %s", err.Error())
+			} else {
+				fatal("failed reading from stdout: %s", err.Error())
+			}
+		}
 	}
 	scanner(rout, false)
 	scanner(rerr, true)
 	err = cmd.Wait()
 	if err != nil {
-		if ee := err.(*exec.ExitError); ee != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
 			code := ee.ExitCode()
 			if code >= 0 {
 				os.Exit(code)
